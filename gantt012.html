@@ -1320,7 +1320,14 @@ function fillSelect(id, values, placeholder){
   sel.innerHTML=`<option value="">${placeholder}</option>`;
   values.forEach(v=>{
     const opt=document.createElement("option");
-    opt.value=v; opt.textContent=v;
+    // v peut être un texte simple OU un objet {value, label}
+    if(typeof v === "object" && v.value !== undefined){
+      opt.value = v.value;
+      opt.textContent = v.label;
+    } else {
+      opt.value = v;
+      opt.textContent = v;
+    }
     sel.appendChild(opt);
   });
 }
