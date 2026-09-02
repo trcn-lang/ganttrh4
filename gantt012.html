@@ -985,7 +985,19 @@ function columnarToRows(data){
 // ajouter une vérification "si Archive alors ignorer" dans chaque filtre,
 // chaque liste déroulante, chaque calcul (source d'oublis, cf. Kanban).
 function exclureProjetsArchives(){
-  DB.projets = DB.projets.filter(p => p['$Archive'] !== true);
+  // estArchive() est volontairement tolérant sur le format renvoyé par Grist
+  // pour une case à cocher : selon la configuration de la colonne, l'API peut
+  // renvoyer true/false (booléen), 1/0 (nombre), voire "true"/"false" (texte).
+  // Une comparaison stricte "=== true" laissait passer silencieusement les
+  // projets archivés dès que le format réel n'était pas un booléen JS strict.
+  if(DB.projets.length > 0){
+    console.log("🗄️ Colonnes disponibles sur Projets :", Object.keys(DB.projets[0]));
+    console.log("🗄️ Valeur brute de la colonne Archive sur le 1er projet :", DB.projets[0]["$Archive"], "(type:", typeof DB.projets[0]["$Archive"], ")");
+  }
+  const estArchive = (v) => v === true || v === 1 || v === "true";
+  const avant = DB.projets.length;
+  DB.projets = DB.projets.filter(p => !estArchive(p['$Archive']));
+  console.log(`🗄️ Archive : ${avant - DB.projets.length} projet(s) archivé(s) exclu(s) sur ${avant}`);
   const projetsVisiblesIds = new Set(DB.projets.map(p => p.id));
   DB.taches = (DB.taches || []).filter(t => projetsVisiblesIds.has(refId(t.Projet)));
   DB.jalons = (DB.jalons || []).filter(j => projetsVisiblesIds.has(refId(j.Projet)));
