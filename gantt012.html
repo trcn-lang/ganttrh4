@@ -234,14 +234,6 @@
   .barre:hover{filter:brightness(0.9)}
   .barre.critique{border:2px solid #fff;box-shadow:0 0 0 1px #CE0500}
 
-  .barre-nom-externe{
-    position:absolute;top:20px;height:22px;z-index:1;
-    display:flex;align-items:center;
-    font-size:11px;color:var(--texte);white-space:nowrap;cursor:pointer;
-    background:var(--fond);padding:0 3px 0 6px;border-radius:0 2px 2px 0;
-  }
-  .barre-nom-externe:hover{color:var(--bleu-france)}
-
   .date-label{
     position:absolute;top:2px;z-index:2;
     transform:translateX(-50%);
@@ -978,35 +970,6 @@ function columnarToRows(data){
   return rows;
 }
 
-// Retire des données en mémoire tout projet archivé (colonne Projets.$Archive
-// cochée) ainsi que tout ce qui en dépend (tâches, jalons, sous-actions).
-// Appelée juste après le chargement, une seule fois : plus aucune fonction
-// du widget n'a ensuite connaissance des projets archivés — évite d'avoir à
-// ajouter une vérification "si Archive alors ignorer" dans chaque filtre,
-// chaque liste déroulante, chaque calcul (source d'oublis, cf. Kanban).
-function exclureProjetsArchives(){
-  // estArchive() est volontairement tolérant sur le format renvoyé par Grist
-  // pour une case à cocher : selon la configuration de la colonne, l'API peut
-  // renvoyer true/false (booléen), 1/0 (nombre), voire "true"/"false" (texte).
-  // Une comparaison stricte "=== true" laissait passer silencieusement les
-  // projets archivés dès que le format réel n'était pas un booléen JS strict.
-  if(DB.projets.length > 0){
-    console.log("🗄️ Colonnes disponibles sur Projets :", Object.keys(DB.projets[0]));
-    console.log("🗄️ Valeur brute de la colonne Archive sur le 1er projet :", DB.projets[0]["$Archive"], "(type:", typeof DB.projets[0]["$Archive"], ")");
-  }
-  const estArchive = (v) => v === true || v === 1 || v === "true";
-  const avant = DB.projets.length;
-  DB.projets = DB.projets.filter(p => !estArchive(p['$Archive']));
-  console.log(`🗄️ Archive : ${avant - DB.projets.length} projet(s) archivé(s) exclu(s) sur ${avant}`);
-  const projetsVisiblesIds = new Set(DB.projets.map(p => p.id));
-  DB.taches = (DB.taches || []).filter(t => projetsVisiblesIds.has(refId(t.Projet)));
-  DB.jalons = (DB.jalons || []).filter(j => projetsVisiblesIds.has(refId(j.Projet)));
-  if(DB.actions){
-    const tachesVisiblesIds = new Set(DB.taches.map(t => t.id));
-    DB.actions = DB.actions.filter(a => tachesVisiblesIds.has(refId(a.Tache)));
-  }
-}
-
 function getPredecessorTasks(task){
   const raw = task.Predecesseurs;
   if(!raw) return [];
@@ -1319,7 +1282,6 @@ async function init(){
     DB.parametres   = columnarToRows(await grist.docApi.fetchTable("PARAMETRES"));
     detectParametresSchema();  // ← Déterminer les vrais noms des champs
     DB.actions      = columnarToRows(await grist.docApi.fetchTable("ACTIONS"));
-    exclureProjetsArchives();  // ← Retirer les projets archivés + tout ce qui en dépend
 
     // ✅ S'assurer qu'un agent "Non attribué" existe dans PARAMETRES.Equipe
     if(!NON_ATTRIBUE_VERIFIE){
@@ -1437,32 +1399,35 @@ function detectParametresSchema(){
 function uniq(arr){ return arr.filter((v,i,a)=>a.indexOf(v)===i); }
 
 function populateSelects(){
-  // Lire les colonnes directement par leur nom Grist (pas de détection compliquée)
-  // C'est la même approche que dans Kanbanv9 : simple, robuste, lisible
+  // Utiliser les noms de colonnes détectés par SCHEMA_PARAMETRES (robuste aux renommages Grist)
+  const colSection = SCHEMA_PARAMETRES.section || "Section";
+  const colType = SCHEMA_PARAMETRES.type || "Type_Projet";
+  const colStatut = SCHEMA_PARAMETRES.statut || "Statut";
+  const colEquipe = SCHEMA_PARAMETRES.equipe || "Equipe";
   
   // Section (Projets)
-  const sections = DB.parametres.filter(p=>p.Section);
+  const sections = DB.parametres.filter(p=>p[colSection]);
   if(sections.length > 0){
-    fillSelect("field-projet-section", sections.map(r=>({value:r.Section, label:r.Section})), "-- Sélectionner --");
+    fillSelect("field-projet-section", sections.map(r=>({value:r[colSection], label:r[colSection]})), "-- Sélectionner --");
   }
   
   // Type_Projet
-  const types = DB.parametres.filter(p=>p.Type_Projet);
+  const types = DB.parametres.filter(p=>p[colType]);
   if(types.length > 0){
-    fillSelect("field-projet-type", types.map(r=>({value:r.Type_Projet, label:r.Type_Projet})), "-- Sélectionner --");
+    fillSelect("field-projet-type", types.map(r=>({value:r[colType], label:r[colType]})), "-- Sélectionner --");
   }
   
   // Statut
-  const statuts = DB.parametres.filter(p=>p.Statut);
+  const statuts = DB.parametres.filter(p=>p[colStatut]);
   if(statuts.length > 0){
-    fillSelect("field-tache-statut", statuts.map(r=>({value:r.Statut, label:r.Statut})), "-- Sélectionner --");
+    fillSelect("field-tache-statut", statuts.map(r=>({value:r[colStatut], label:r[colStatut]})), "-- Sélectionner --");
   }
   
   // Equipe (Tâches et Actions)
-  const agents = DB.parametres.filter(p=>p.Equipe);
+  const agents = DB.parametres.filter(p=>p[colEquipe]);
   if(agents.length > 0){
-    fillSelect("field-tache-equipe", agents.map(r=>({value:r.Equipe, label:r.Equipe})), "-- Aucun --");
-    fillSelect("field-action-equipe", agents.map(r=>({value:r.Equipe, label:r.Equipe})), "-- Aucun --");
+    fillSelect("field-tache-equipe", agents.map(r=>({value:r[colEquipe], label:r[colEquipe]})), "-- Aucun --");
+    fillSelect("field-action-equipe", agents.map(r=>({value:r[colEquipe], label:r[colEquipe]})), "-- Aucun --");
   }
 }
 
@@ -2157,20 +2122,6 @@ async function saveJalon(){
       if(jalonMisAJour){
         const impacts = calculerCascadeDepuisJalon(jalonMisAJour);
         if(impacts.length > 0){
-          // Conserver l'état AVANT modif pour permettre un vrai "Annuler"
-          LAST_CASCADE_ANCIEN_ETAT = {
-            genre: "jalon",
-            id: ancienJalon.id,
-            valeurs: {
-              Projet: ancienJalon.Projet,
-              Nom: ancienJalon.Nom,
-              Date: ancienJalon.Date,
-              Type: ancienJalon.Type,
-              Important: ancienJalon.Important,
-              Commentaires: ancienJalon.Commentaires,
-              Taches_requises: ancienJalon.Taches_requises,
-            }
-          };
           afficherRecapCascade("jalon", jalonMisAJour.Nom, impacts);
           return; // modale cascade gère la fermeture
         }
@@ -2628,25 +2579,6 @@ async function saveTache(){
       if(tacheMisAJour){
         const impacts = calculerCascadeDepuisTache(tacheMisAJour);
         if(impacts.length > 0){
-          // Conserver l'état AVANT modif pour permettre un vrai "Annuler"
-          LAST_CASCADE_ANCIEN_ETAT = {
-            genre: "tache",
-            id: ancienneTache.id,
-            valeurs: {
-              Section: ancienneTache.Section,
-              Projet: ancienneTache.Projet,
-              Tache: ancienneTache.Tache,
-              Date_debut: ancienneTache.Date_debut,
-              Date_fin: ancienneTache.Date_fin,
-              Duree_jours: ancienneTache.Duree_jours,
-              Statut: ancienneTache.Statut,
-              Equipe: ancienneTache.Equipe,
-              Commentaires: ancienneTache.Commentaires,
-              Predecesseurs: ancienneTache.Predecesseurs,
-              Jalon_declencheur: ancienneTache.Jalon_declencheur,
-              Incompressible: ancienneTache.Incompressible,
-            }
-          };
           afficherRecapCascade("tache", tacheMisAJour.Tache, impacts);
           return; // modale cascade gère la fermeture
         }
@@ -2689,10 +2621,6 @@ async function deleteTache(){
 
 let LAST_CASCADE_IMPACTS = [];
 let LAST_CASCADE_SOURCE  = null; // { type:"tache"|"jalon", modal:"modal-tache"|"modal-jalon" }
-// État de la tâche/du jalon AVANT la modification qui a déclenché la popup de
-// cascade — capturé pour permettre un vrai "Annuler" (revenir en arrière),
-// distinct de "Confirmer" (garder la modif + propager si besoin).
-let LAST_CASCADE_ANCIEN_ETAT = null; // { genre:"tache"|"jalon", id, valeurs:{...} }
 
 // ─── Cascade depuis une tâche ─────────────────────────────────────────────
 function calculerCascadeDepuisTache(startTask){
@@ -2881,14 +2809,10 @@ function afficherRecapCascade(sourceType, sourceNom, impacts){
 
   const conflits = impacts.filter(i=>i.statut==="conflit");
   const cascades = impacts.filter(i=>i.statut!=="conflit");
-  // "nbAAppliquer" détermine s'il y a des écritures supplémentaires à faire
-  // en cas de clic sur "Confirmer" (décalages, absorptions). Le bouton reste
-  // désormais TOUJOURS visible, même à 0 — comportement cohérent : "Confirmer"
-  // garde la modification (et propage si besoin), "Annuler" revient en arrière.
-  // Avant ce correctif, "Confirmer" disparaissait s'il n'y avait que des
-  // conflits (rien à propager), ne laissant que "Annuler" — qui, lui, ne
-  // faisait alors QUE fermer la popup sans rien annuler de réel : source de
-  // confusion (voir LAST_CASCADE_ANCIEN_ETAT plus bas pour le vrai "Annuler").
+  // Le bouton Confirmer doit apparaître dès qu'il y a une écriture à faire —
+  // pas seulement un décalage (shift) mais aussi une absorption (durée
+  // réduite, Date_debut modifiée). Un impact "absorbe" est un changement
+  // silencieux mais réel : sans lui, "Annuler" perdait l'absorption calculée.
   const nbAAppliquer = cascades.filter(i=>i.statut==="shift" || i.statut==="absorbe").length;
 
   document.getElementById("cascade-titre").textContent =
@@ -2896,7 +2820,7 @@ function afficherRecapCascade(sourceType, sourceNom, impacts){
      cascades.length>0 ? `${cascades.length} impact(s) à propager` : ""]
     .filter(Boolean).join(" · ") || "Impacts calendaires";
 
-  document.getElementById("btn-confirmer-cascade").style.display = "inline-block";
+  document.getElementById("btn-confirmer-cascade").style.display = nbAAppliquer>0 ? "inline-block" : "none";
 
   // ── Section conflits (informationnelle, pas d'action automatique) ──────────
   if(conflits.length>0){
@@ -2990,36 +2914,14 @@ function afficherRecapCascade(sourceType, sourceNom, impacts){
   openModal("modal-cascade");
 }
 
-// "Annuler" = revient réellement en arrière : la tâche/le jalon retrouve sa
-// valeur d'avant la modification (nouvelle écriture Grist), et rien n'est
-// propagé. Avant ce correctif, ce bouton fermait juste la popup sans rien
-// annuler — la modification restait silencieusement enregistrée, ce qui
-// prêtait à confusion (l'intitulé "Annuler" laissait croire le contraire).
-async function annulerCascade(){
-  const etatAnterieur = LAST_CASCADE_ANCIEN_ETAT;
+function annulerCascade(){
   closeModal("modal-cascade");
+  // La tâche/jalon est déjà sauvegardé — on ferme juste sans appliquer la cascade
   if(LAST_CASCADE_SOURCE) closeModal(LAST_CASCADE_SOURCE.modal);
   LAST_CASCADE_IMPACTS = [];
   LAST_CASCADE_SOURCE  = null;
-  LAST_CASCADE_ANCIEN_ETAT = null;
-
-  if(etatAnterieur){
-    try{
-      const table = etatAnterieur.genre === "tache" ? "Taches" : "Jalons";
-      await grist.docApi.applyUserActions([["UpdateRecord", table, etatAnterieur.id, etatAnterieur.valeurs]]);
-      await init();
-      construire();
-    }catch(e){
-      alert("Erreur lors de l'annulation : "+e.message);
-      console.error(e);
-    }
-  }
 }
 
-// "Confirmer" (= OK) : garde la modification telle quelle, et applique en
-// plus les décalages en cascade s'il y en a. S'il n'y a rien à propager
-// (cas "conflits uniquement"), se contente de fermer — pas d'appel réseau
-// inutile.
 async function confirmerCascade(){
   const aAppliquer = LAST_CASCADE_IMPACTS.filter(i=>i.statut==="shift");
   try{
@@ -3042,32 +2944,24 @@ async function confirmerCascade(){
         // Date_fin inchangée, on met juste à jour la durée
         Duree_jours: i.nouvelleDuree
       }]);
-    const toutesLesActions = [...tachesActions,...jalonsActions,...absorbeActions];
-    if(toutesLesActions.length > 0){
-      await grist.docApi.applyUserActions(toutesLesActions);
-      await init();
-      construire();
-    }
+    await grist.docApi.applyUserActions([...tachesActions,...jalonsActions,...absorbeActions]);
     closeModal("modal-cascade");
     if(LAST_CASCADE_SOURCE) closeModal(LAST_CASCADE_SOURCE.modal);
+    await init();
+    construire();
   }catch(e){ alert("Erreur lors de la cascade : "+e.message); console.error(e); }
   LAST_CASCADE_IMPACTS=[];
   LAST_CASCADE_SOURCE=null;
-  LAST_CASCADE_ANCIEN_ETAT=null;
 }
 
-// Mesure précise de la largeur d'un texte avec la police réelle du widget.
-// "font" est optionnel : par défaut la police des labels de jalons (700 10px),
-// mais peut être surchargée (ex: police des noms de tâche dans les barres, 400 11px).
+// Mesure précise de la largeur d'un texte avec la police réelle du widget
 let _canvasCtx = null;
-const FONT_JALON = '700 10px "Marianne", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
-const FONT_BARRE_TACHE = '400 11px "Marianne", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
-function mesurerLargeurTexte(texte, font){
+function mesurerLargeurTexte(texte){
   if(!_canvasCtx){
     const canvas = document.createElement("canvas");
     _canvasCtx = canvas.getContext("2d");
+    _canvasCtx.font = '700 10px "Marianne", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
   }
-  _canvasCtx.font = font || FONT_JALON;
   return _canvasCtx.measureText(texte).width;
 }
 
@@ -3247,26 +3141,10 @@ function construire(){
           const duree = t.Duree_jours || 1;
           const finIdxReel = finIdx !== null ? finIdx : (dIdx + duree - 1);
           const etalementJours = finIdxReel - dIdx + 1;
-          const largeurBarrePx = Math.max(1,etalementJours*JOUR_PX);
-          barre.style.width=largeurBarrePx+"px";
+          barre.style.width=(Math.max(1,etalementJours*JOUR_PX))+"px";
           barre.style.background=cssVarValue(info.couleur);
-          // Si le nom ne rentre pas dans la barre (padding 6px de chaque côté),
-          // on l'affiche À CÔTÉ plutôt que de le laisser tronqué/illisible —
-          // même principe que les labels de jalons, qui ont ce souci résolu
-          // depuis longtemps. Si la barre est assez large, rien ne change.
-          const largeurTexteDispo = largeurBarrePx - 12;
-          const largeurTexteReelle = mesurerLargeurTexte(t.Tache, FONT_BARRE_TACHE);
-          if(largeurTexteReelle <= largeurTexteDispo){
-            barre.textContent = t.Tache;
-          } else {
-            const labelExterne = el("div","barre-nom-externe", t.Tache);
-            labelExterne.style.left = ((dIdx-minI)*JOUR_PX + largeurBarrePx) + "px";
-            labelExterne.onclick = (e)=>{ e.stopPropagation(); openTacheEdit(t); };
-            track.appendChild(labelExterne);
-          }
-          // Bulle de secours dans tous les cas (barre pleine ou label externe) :
-          // permet de relire le nom complet au survol, quelle que soit la situation.
-          barre.title = t.Commentaires ? (t.Tache+" — "+t.Commentaires) : t.Tache;
+          barre.textContent=t.Tache;
+          if(t.Commentaires) barre.title=t.Commentaires;
           barre.onclick=(e)=>{ e.stopPropagation(); openTacheEdit(t); };
           track.appendChild(barre);
           if(JOUR_PX >= 6){
