@@ -238,6 +238,7 @@
     position:absolute;top:20px;height:22px;z-index:1;
     display:flex;align-items:center;
     font-size:11px;color:var(--texte);white-space:nowrap;cursor:pointer;
+    background:var(--fond);padding:0 3px 0 6px;border-radius:0 2px 2px 0;
   }
   .barre-nom-externe:hover{color:var(--bleu-france)}
 
@@ -3247,7 +3248,7 @@ function construire(){
             barre.textContent = t.Tache;
           } else {
             const labelExterne = el("div","barre-nom-externe", t.Tache);
-            labelExterne.style.left = ((dIdx-minI)*JOUR_PX + largeurBarrePx + 6) + "px";
+            labelExterne.style.left = ((dIdx-minI)*JOUR_PX + largeurBarrePx) + "px";
             labelExterne.onclick = (e)=>{ e.stopPropagation(); openTacheEdit(t); };
             track.appendChild(labelExterne);
           }
